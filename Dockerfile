@@ -10,9 +10,9 @@ ENV LC_ALL=fr_FR.UTF-8
 
 # Install selected extensions and other stuff
 RUN apt-get update \
-    && apt-get -y --no-install-recommends install curl wget git sudo locales \
+    && apt-get -y --no-install-recommends install curl wget git sudo cron locales \
     && locale-gen $LOCALE && update-locale \
-    && usermod -u 33 www-data && groupmod -g 33 www-data \
+    && usermod -u 33 -d $APPDIR www-data && groupmod -g 33 www-data \
     && mkdir -p $APPDIR && chown www-data:www-data $APPDIR
 
 RUN cd /tmp && wget https://deb.nodesource.com/setup_12.x && chmod +x setup_12.x && ./setup_12.x && \
@@ -24,6 +24,9 @@ RUN apt-get update \
     && apt-get -y --no-install-recommends install php-memcached php7.4-mysql php-pgsql php7.4-sqlite3 php7.4-intl php-gd php-mbstring php-yaml php-curl php-json php-redis composer
 
 RUN apt-get clean; rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc/*
+
+# Run cron
+RUN service cron start
 
 COPY ./ini/php-ini-overrides.ini /etc/php/7.4/fpm/conf.d/99-overrides.ini
 
