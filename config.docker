@@ -1,0 +1,4 @@
+VENDOR=wyzenrepo
+IMAGE=node-php-fpm74
+TAG=latest
+SHELL=sh

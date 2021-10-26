@@ -3,37 +3,73 @@ FROM phpdockerio/php74-fpm:latest
 # Fix debconf warnings upon build
 ARG DEBIAN_FRONTEND=noninteractive
 ARG APPDIR=/application
-ARG LOCALE=fr_FR.UTF-8
-ARG LC_ALL=fr_FR.UTF-8
-ENV LOCALE=fr_FR.UTF-8
-ENV LC_ALL=fr_FR.UTF-8
+ARG LOCALE="fr_FR.UTF-8"
+ARG LC_ALL="fr_FR.UTF-8"
+ENV LOCALE="fr_FR.UTF-8"
+ENV LC_ALL="fr_FR.UTF-8"
+ARG TIMEZONE="Europe/Paris"
+ARG NODE_RELEASE=14
+ARG PHP_RELEASE=7.4
 
-# Install selected extensions and other stuff
-RUN apt-get update \
-    && apt-get -y --no-install-recommends install curl wget git sudo cron locales \
-    && locale-gen $LOCALE && update-locale \
-    && usermod -u 33 -d $APPDIR www-data && groupmod -g 33 www-data \
-    && mkdir -p $APPDIR && chown www-data:www-data $APPDIR
+EXPOSE 9000
 
-RUN cd /tmp && wget https://deb.nodesource.com/setup_12.x && chmod +x setup_12.x && ./setup_12.x && \
-cd /tmp && curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add - && \
-echo "deb https://dl.yarnpkg.com/debian/ stable main" > /etc/apt/sources.list.d/yarn.list && \
-apt update && apt install -y --force-yes nodejs yarn
+COPY config/system/locale.gen /etc/locale.gen
+COPY ./config/system/export_locale.sh /etc/profile.d/05-export_locale.sh
 
-RUN apt-get update \
-    && apt-get -y --no-install-recommends install php-memcached php7.4-mysql php-pgsql php7.4-sqlite3 php7.4-intl php-gd php-mbstring php-yaml php-curl php-json php-redis \
-&& cd /tmp \
-&& php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" \
-&& php composer-setup.php \
-&& php -r "unlink('composer-setup.php');" \
-&& mv composer.phar /usr/local/bin/composer
+RUN apt update \
+    && apt -y --no-install-recommends dist-upgrade
 
+RUN cd /tmp \
+    && groupadd -f --system --gid 33 www-data \
+    && groupadd -f --system --gid 105 crontab \
+    && mkdir -p $APPDIR \
+    && usermod -u 33 -g 33 -d $APPDIR www-data \
+    && chown www-data:www-data $APPDIR \
+    && apt-get -y --no-install-recommends install curl wget git sudo cron locales vim \
+    && locale-gen $LOCALE && update-locale LANGUAGE=${LOCALE} LC_ALL=${LOCALE} LANG=${LOCALE} LC_CTYPE=${LOCALE}\
+    && ln -sf /usr/share/zoneinfo/${TIMEZONE} /etc/localtime \
+    && . /etc/default/locale
+
+# NODE, YARN, COMPOSER
+RUN cd /tmp && \
+    curl -fsS https://getcomposer.org/installer -o composer-setup.php && \
+    php composer-setup.php --quiet && mv composer.phar /usr/local/bin/composer && rm composer-setup.php && \
+    curl -fsSL https://deb.nodesource.com/setup_${NODE_RELEASE}.x | sudo -E bash - && \
+    curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add - && \
+    echo "deb https://dl.yarnpkg.com/debian/ stable main" > /etc/apt/sources.list.d/yarn.list && \
+    apt update && apt install -y nodejs yarn && \
+    cd /etc/alternatives && ln -sf /usr/bin/php${PHP_RELEASE} php
+
+# PHP Packages
+RUN apt-get -y --no-install-recommends install \
+    php${PHP_RELEASE}-memcached \
+    php${PHP_RELEASE}-gd \
+    php${PHP_RELEASE}-ldap \
+    php${PHP_RELEASE}-redis \
+    php${PHP_RELEASE}-pgsql \
+    php${PHP_RELEASE}-mysql \
+    php${PHP_RELEASE}-sqlite3 \
+    php${PHP_RELEASE}-intl \
+    php${PHP_RELEASE}-mbstring \
+    php${PHP_RELEASE}-xml \
+    php${PHP_RELEASE}-curl \
+    php${PHP_RELEASE}-zip \
+    php${PHP_RELEASE}-json \
+    php${PHP_RELEASE}-yaml
+
+# CLEAN
 RUN apt-get clean; rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc/*
 
 # Run cron
 RUN service cron start
 
-COPY ./ini/php-ini-overrides.ini /etc/php/7.4/fpm/conf.d/99-overrides.ini
+# ADDITIONALS CONFIG
+COPY ./config/php/php-ini-overrides.ini /etc/php/${PHP_RELEASE}/fpm/conf.d/99-overrides.ini
+COPY ./config/php/php-ini-overrides.ini /etc/php/${PHP_RELEASE}/cli/conf.d/99-overrides.ini
+COPY ./config/system/alias.sh /etc/profile.d/01-alias.sh
+COPY ./config/system/service_script.conf /src/supervisor/service_script.conf
+
+RUN cat /etc/profile.d/01-alias.sh > /etc/bash.bashrc
 
 EXPOSE 9000
 VOLUME [ "$APPDIR" ]
